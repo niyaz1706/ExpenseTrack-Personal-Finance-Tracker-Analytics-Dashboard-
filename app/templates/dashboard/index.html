@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - ExpenseTrack{% endblock %}
+
+{% block content %}
+<div class="row mb-4 align-items-center">
+    <div class="col-md-6">
+        <h2 class="fw-bold mb-1">Financial Dashboard</h2>
+        <p class="text-muted mb-0">Overview of your cash flow, income, and spending patterns</p>
+    </div>
+    <div class="col-md-6 d-flex justify-content-md-end align-items-center gap-2 mt-3 mt-md-0">
+        <input type="date" id="filterStartDate" class="form-control form-control-sm" style="width: auto;">
+        <span class="text-muted">to</span>
+        <input type="date" id="filterEndDate" class="form-control form-control-sm" style="width: auto;">
+        <button id="btnApplyFilter" class="btn btn-sm btn-primary">
+            <i class="bi bi-funnel"></i> Filter
+        </button>
+        <button id="btnResetFilter" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-counterclockwise"></i> Reset
+        </button>
+    </div>
+</div>
+
+<!-- Summary Metric Cards -->
+<div class="row g-3 mb-4">
+    <div class="col-12 col-md-4">
+        <div class="card card-hover p-3 border-start border-success border-4">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <span class="text-muted text-uppercase fw-semibold small">Total Income</span>
+                    <h3 class="fw-bold text-success mb-0 mt-1" id="totalIncomeDisplay">$0.00</h3>
+                </div>
+                <div class="stat-icon bg-success-subtle text-success">
+                    <i class="bi bi-arrow-down-left-circle fs-3"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="card card-hover p-3 border-start border-danger border-4">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <span class="text-muted text-uppercase fw-semibold small">Total Expense</span>
+                    <h3 class="fw-bold text-danger mb-0 mt-1" id="totalExpenseDisplay">$0.00</h3>
+                </div>
+                <div class="stat-icon bg-danger-subtle text-danger">
+                    <i class="bi bi-arrow-up-right-circle fs-3"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-md-4">
+        <div class="card card-hover p-3 border-start border-primary border-4">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <span class="text-muted text-uppercase fw-semibold small">Net Balance</span>
+                    <h3 class="fw-bold text-primary mb-0 mt-1" id="netBalanceDisplay">$0.00</h3>
+                </div>
+                <div class="stat-icon bg-primary-subtle text-primary">
+                    <i class="bi bi-wallet2 fs-3"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Section -->
+<div class="row g-4">
+    <div class="col-12 col-lg-5">
+        <div class="card p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0"><i class="bi bi-pie-chart me-2 text-primary"></i>Spending by Category</h5>
+            </div>
+            <div class="d-flex justify-content-center align-items-center flex-grow-1" style="min-height: 280px;">
+                <canvas id="categoryChart"></canvas>
+            </div>
+            <div id="noCategoryData" class="text-center text-muted py-5 d-none">
+                <i class="bi bi-folder-x fs-1"></i>
+                <p class="mt-2 mb-0">No expense records found for this period</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-lg-7">
+        <div class="card p-3 h-100">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0"><i class="bi bi-bar-chart-line me-2 text-primary"></i>Monthly Income vs Expense</h5>
+            </div>
+            <div class="d-flex justify-content-center align-items-center flex-grow-1" style="min-height: 280px;">
+                <canvas id="monthlyChart"></canvas>
+            </div>
+            <div id="noMonthlyData" class="text-center text-muted py-5 d-none">
+                <i class="bi bi-calendar-x fs-1"></i>
+                <p class="mt-2 mb-0">No monthly activity recorded yet</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let categoryChartInstance = null;
+let monthlyChartInstance = null;
+
+async function loadSummary() {
+    const start = document.getElementById('filterStartDate').value;
+    const end = document.getElementById('filterEndDate').value;
+    let url = '/api/analytics/summary';
+    const params = new URLSearchParams();
+    if (start) params.append('start_date', start);
+    if (end) params.append('end_date', end);
+    if (params.toString()) url += '?' + params.toString();
+
+    const res = await apiRequest(url);
+    if (res && res.success) {
+        document.getElementById('totalIncomeDisplay').textContent = '$' + res.data.total_income.toLocaleString('en-US', { minimumFractionDigits: 2 });
+        document.getElementById('totalExpenseDisplay').textContent = '$' + res.data.total_expense.toLocaleString('en-US', { minimumFractionDigits: 2 });
+        const net = res.data.net_balance;
+        const netElem = document.getElementById('netBalanceDisplay');
+        netElem.textContent = '$' + net.toLocaleString('en-US', { minimumFractionDigits: 2 });
+        netElem.className = 'fw-bold mb-0 mt-1 ' + (net >= 0 ? 'text-primary' : 'text-danger');
+    }
+}
+
+async function loadCategoryChart() {
+    const start = document.getElementById('filterStartDate').value;
+    const end = document.getElementById('filterEndDate').value;
+    let url = '/api/analytics/by-category?type=expense';
+    const params = new URLSearchParams();
+    if (start) params.append('start_date', start);
+    if (end) params.append('end_date', end);
+    if (params.toString()) url += '&' + params.toString();
+
+    const res = await apiRequest(url);
+    const canvas = document.getElementById('categoryChart');
+    const noData = document.getElementById('noCategoryData');
+
+    if (!res || !res.success || res.data.labels.length === 0) {
+        canvas.classList.add('d-none');
+        noData.classList.remove('d-none');
+        if (categoryChartInstance) {
+            categoryChartInstance.destroy();
+            categoryChartInstance = null;
+        }
+        return;
+    }
+
+    canvas.classList.remove('d-none');
+    noData.classList.add('d-none');
+
+    const colors = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+    if (categoryChartInstance) categoryChartInstance.destroy();
+    categoryChartInstance = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: res.data.labels,
+            datasets: [{
+                data: res.data.amounts,
+                backgroundColor: colors.slice(0, res.data.labels.length),
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom' }
+            }
+        }
+    });
+}
+
+async function loadMonthlyChart() {
+    const res = await apiRequest('/api/analytics/monthly');
+    const canvas = document.getElementById('monthlyChart');
+    const noData = document.getElementById('noMonthlyData');
+
+    if (!res || !res.success || res.data.labels.length === 0) {
+        canvas.classList.add('d-none');
+        noData.classList.remove('d-none');
+        if (monthlyChartInstance) {
+            monthlyChartInstance.destroy();
+            monthlyChartInstance = null;
+        }
+        return;
+    }
+
+    canvas.classList.remove('d-none');
+    noData.classList.add('d-none');
+
+    if (monthlyChartInstance) monthlyChartInstance.destroy();
+    monthlyChartInstance = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: res.data.labels,
+            datasets: [
+                {
+                    label: 'Income',
+                    data: res.data.income,
+                    backgroundColor: '#10b981',
+                    borderRadius: 4
+                },
+                {
+                    label: 'Expense',
+                    data: res.data.expense,
+                    backgroundColor: '#ef4444',
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: val => '$' + val
+                    }
+                }
+            }
+        }
+    });
+}
+
+function refreshAll() {
+    loadSummary();
+    loadCategoryChart();
+    loadMonthlyChart();
+}
+
+document.getElementById('btnApplyFilter').addEventListener('click', refreshAll);
+document.getElementById('btnResetFilter').addEventListener('click', () => {
+    document.getElementById('filterStartDate').value = '';
+    document.getElementById('filterEndDate').value = '';
+    refreshAll();
+});
+
+document.addEventListener('DOMContentLoaded', refreshAll);
+</script>
+{% endblock %}
